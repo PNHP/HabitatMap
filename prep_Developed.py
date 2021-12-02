@@ -13,55 +13,27 @@
 import arcpy
 from arcpy import env
 from arcpy.sa import *
+import os
 
-# To allow overwriting outputs change overwriteOutput option to True.
-arcpy.env.overwriteOutput = True
-
+# Set reference layer and environement variables
 refLayer = "W:\\Heritage\\Conservation_Planning\\HabitatMap\\ReferenceLayers.gdb\\snap_raster_10m"
+arcpy.env.overwriteOutput = True
 arcpy.env.cellSize = refLayer
 arcpy.env.snapRaster = refLayer
 arcpy.env.mask = refLayer
-arcpy.env.extent = "-80672.322784879 138824.548045481 -69355.52 147921.18"  
+arcpy.env.outputCoordinateSystem = 'PROJCS["alber",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["central_meridian",-78.0],PARAMETER["Standard_Parallel_1",40.0],PARAMETER["Standard_Parallel_2",42.0],PARAMETER["latitude_of_origin",39.0],UNIT["Meter",1.0]]'
+arcpy.env.workspace = "memory"
+albers = 'PROJCS["alber",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["central_meridian",-78.0],PARAMETER["Standard_Parallel_1",40.0],PARAMETER["Standard_Parallel_2",42.0],PARAMETER["latitude_of_origin",39.0],UNIT["Meter",1.0]]'
 
-# Check out any necessary licenses.
-#arcpy.CheckOutExtension("spatial")
+# set output gdb for non-temporary products
+gdb = r"E:\Projects\HabitatMap\DevelopedLand.gdb"
+#gdb = r"C:\\Users\\mmoore\\OneDrive - Western Pennsylvania Conservancy\\Projects\\HabitatMap\\Development.gdb"
 
-arcpy.env.workspace = r'T:\\HabitatMapUpdate\\DevelopedLand\\DevelopedLand.gdb'
-
-############################################################################################################################
-# Developed Open Space - this section takes the low vegetation category from the High resolution landcover and intersects it with the
-# Developed open space class from the NLCD, hopefully resulting in a layer that shows open space within urban areas.
-print("Beginning work on Developed Open Space")
+# set paths for nlcd and 2013 hi-res landcover datasets
 nlcd = r'W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap02_ProcessedLayers.gdb\\nlcd2016_Clip_processed'
 highreslc = r'W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap02_ProcessedLayers.gdb\\landcover_2013_PA_hires_10m_processed'
 
-# extract hi res developed
-attUrban_highreslc = ExtractByAttributes(highreslc, "Value = 7 Or Value = 8 Or Value = 9 Or Value = 10 Or Value = 11 Or Value = 12") # 7 = structures; 8 = other impervious
-
-# Execute ExtractByAttributes
-print("- extracting HiRes landcover and NLCD by open space attributes")
-attExtract_nlcd = ExtractByAttributes(nlcd, "NLCD_Land_Cover_Class LIKE 'Developed%'")
-attExtract_highreslc = ExtractByAttributes(highreslc, "Value = 5") # 5 = low veg
-outReclass1 = Reclassify(attExtract_nlcd, "Value", RemapValue([[21,1],[22,1],[23,1],[24,1]]))
-#outReclass1.save("landuse_rcls")
-
-outCombine = Combine([outReclass1, attExtract_highreslc])
-
-
-print("- calculating the intersection...")
-# If either A or B are null it will give you 0 if not 1, all the ones should show where A and B have values.
-devopenspace = arcpy.sa.Con(((IsNull(attExtract_nlcd))|(IsNull(attExtract_highreslc))),1)
-devopenspace1 = arcpy.sa.SetNull(devopenspace, devopenspace, "VALUE=0")
-
-# Save the output
-print("- saving...")
-devopenspace1.save("T:\\HabitatMapUpdate\\DevelopedLand\\DevelopedLand.gdb\\devopenspace_intersection")
-print("- saved...")
-
-##########################################################################################################################
-# roads and other transportation infrastructure
-print("working on the roads")
-
+# set paths for transportation layers
 roads_local = r'W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap06_SrcData_Misc.gdb\\PaLocalRoads2021_03'
 roads_state = r'W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap06_SrcData_Misc.gdb\\PaStateRoads2020_12'
 railroads = r'W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap06_SrcData_Misc.gdb\\PaLocalRoads2021_03'
@@ -70,73 +42,104 @@ osm_railroads = r'W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap04_
 osm_traffic = r'W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap04_SrcData_OSM.gdb\\gis_osm_traffic_a_free_1'
 osm_transport = "W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap04_SrcData_OSM.gdb\\gis_osm_transport_a_free_1"
 
-tmp_roads_local_buffer = "tmp_roads_local_buffer123"
-tmp_roads_state_buffer = "tmp_roads_state_buffer123"
-tmp_railroads_buffer = "tmp_railroads_buffer123"
-tmp_osm_roads_buffer = "tmp_osm_roads123"
-tmp_osm_railroads_buffer = "tmp_osm_railroads123"
-tmp_osm_traffic = "tmp_osm_traffic123"
-tmp_osm_transport = "tmp_osm_transport123"
-
-
-# local roads
-print("- local roads")
-arcpy.analysis.Buffer(roads_local, tmp_roads_local_buffer, "6 Meters", line_side="FULL", line_end_type="ROUND", dissolve_option="NONE", dissolve_field=[], method="PLANAR")
-arcpy.management.CalculateField(in_table=tmp_roads_local_buffer, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-
-# state roads
-print("- state roads")
-arcpy.analysis.Buffer(roads_state, tmp_roads_state_buffer, "6 Meters", line_side="FULL", line_end_type="ROUND", dissolve_option="NONE", dissolve_field=[], method="PLANAR")
-arcpy.management.CalculateField(in_table=tmp_roads_state_buffer, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-
-# railroads
-print("- railroads")
-arcpy.analysis.Buffer(railroads, tmp_railroads_buffer, "6 Meters", line_side="FULL", line_end_type="ROUND", dissolve_option="NONE", dissolve_field=[], method="PLANAR")
-arcpy.management.CalculateField(in_table=tmp_railroads_buffer, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-
-# openstreetmap roads and railroads
-arcpy.analysis.Buffer(osm_roads, tmp_osm_roads_buffer, "6 Meters", line_side="FULL", line_end_type="ROUND", dissolve_option="NONE", dissolve_field=[], method="PLANAR")
-arcpy.management.CalculateField(in_table=tmp_osm_roads_buffer, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-
-arcpy.analysis.Buffer(osm_railroads, tmp_osm_railroads_buffer, "6 Meters", line_side="FULL", line_end_type="ROUND", dissolve_option="NONE", dissolve_field=[], method="PLANAR")
-arcpy.management.CalculateField(in_table=tmp_osm_railroads_buffer, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-
-# openstreetmap traffic polygons
-arcpy.management.CopyFeatures(osm_traffic, tmp_osm_traffic) 
-arcpy.management.CalculateField(in_table=tmp_osm_traffic, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-arcpy.management.CopyFeatures(osm_transport, tmp_osm_transport) 
-arcpy.management.CalculateField(in_table=tmp_osm_transport, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-
-
-
-##########################################################################################################################
-# places
-print("working on other development")
-
+# set path for open street maps points of interest layer
 osm_poi = "W:\\Heritage\\Conservation_Planning\\HabitatMap\\HabitatMap04_SrcData_OSM.gdb\\gis_osm_pois_a_free_1"
-tmp_osm_poi = "tmp_osm_poi123"
 
-#arcpy.management.MakeFeatureLayer(osm_poi, tmp_osm_poi, where_clause="fclass <> 'battlefield' And fclass <> 'park' And fclass <> 'university'")
-osm_poi_layer = arcpy.management.SelectLayerByAttribute(in_layer_or_view=osm_poi, selection_type="NEW_SELECTION", where_clause="fclass <> 'battlefield' And fclass <> 'park' And fclass <> 'university'", invert_where_clause="")
-arcpy.management.CopyFeatures(osm_poi_layer, tmp_osm_poi)
-arcpy.management.CalculateField(in_table=tmp_osm_poi, field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-#arcpy.conversion.PolygonToRaster(in_features=tmp_osm_poi, value_field="ClassVal", out_rasterdataset="dev_draster", cell_assignment="MAXIMUM_COMBINED_AREA", priority_field="NONE", build_rat="BUILD")
+########################################################################################################################
+'''Developed Open Space - this section takes the low vegetation category from the High resolution landcover and 
+intersects it with the developed open space class from the NLCD, hopefully resulting in a layer that shows open space
+within urban areas.'''
+########################################################################################################################
 
+print("Beginning work on Developed Open Space")
 
+# extract developed land from hi-res dataset
+print("- extracting developed land from HiRes")
+Extract_HiRes_Developed = ExtractByAttributes(highreslc, "Value = 7 Or Value = 8 Or Value = 9 Or Value = 10 Or Value = 11 Or Value = 12") # 7 = structures; 8 = other impervious
 
-##########################################################################################################################
-# merge everything
-arcpy.Merge_management([tmp_roads_local_buffer, tmp_roads_state_buffer, tmp_railroads_buffer, tmp_osm_roads_buffer, tmp_osm_railroads_buffer, tmp_osm_traffic, tmp_osm_transport, tmp_osm_poi], "dev_merge_test", "", "ADD_SOURCE_INFO")
+# extract developed land covers from NLCD
+print("- extracting developed land from NLCD")
+Extract_NLCD_Developed = ExtractByAttributes(nlcd, "NLCD_Land_Cover_Class LIKE 'Developed%'")
 
-arcpy.analysis.PairwiseDissolve("dev_merge_test", "dev_dissolve") 
-arcpy.management.CalculateField(in_table="dev_dissolve", field="ClassVal", expression="1", expression_type="PYTHON3", code_block="", field_type="TEXT")[0]
-arcpy.conversion.PolygonToRaster(in_features="dev_dissolve", value_field="ClassVal", out_rasterdataset="dev_raster", cell_assignment="MAXIMUM_COMBINED_AREA", priority_field="NONE", build_rat="BUILD")
+# extract low vegetation category from the hi-res dataset
+print("- extracting low veg category from HiRes")
+Extract_HiRes_LowVeg = ExtractByAttributes(highreslc, "Value = 5") # 5 = low veg
 
+# reclassify all NLCD developed to 1
+NLCD_developed_reclass = Reclassify(Extract_NLCD_Developed, "Value", RemapValue([[21,1],[22,1],[23,1],[24,1]]))
 
-arcpy.management.MosaicToNewRaster("attUrban_highreslc;dev_raster;outCombine", r"T:\HabitatMapUpdate\DevelopedLand\DevelopedLand.gdb", "testmerge1", 'PROJCS["alber",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["central_meridian",-78.0],PARAMETER["Standard_Parallel_1",40.0],PARAMETER["Standard_Parallel_2",42.0],PARAMETER["latitude_of_origin",39.0],UNIT["Meter",1.0]]', "8_BIT_UNSIGNED", None, 1, "MAXIMUM", "FIRST")
-outReclass2 = Reclassify("testmerge1", "Value", RemapRange([[1,100,1]]), "NODATA")
+# combine reclassified NLCD developed and hi res low veg to get raster of overlapping cells
+devopenspace = Combine([NLCD_developed_reclass, Extract_HiRes_LowVeg])
+print("- saving developed open space raster")
+devopenspace.save(os.path.join(gdb,"devopenspace"))
 
+# If either A or B are null it will give you 0 if not 1, all the ones should show where A and B have values.
+#devopenspace_inverse = arcpy.sa.Con(IsNull(Extract_NLCD_Developed) | IsNull(Extract_HiRes_LowVeg), 1)
+#print("- saving inverse of developed open space raster")
+#devopenspace_inverse.save(os.path.join(gdb,"devopenspace_inverse"))
 
+########################################################################################################################
+'''Transportation - this section buffers transporation lines and merges buffers with transporation polygons and converts
+merged polygon layer to raster.'''
+########################################################################################################################
+
+# roads and other transportation infrastructure
+print("Working on the roads... INFRASTRUCTURE!")
+
+transport_line_list = [roads_local,roads_state,railroads,osm_railroads]
+transport_buff_list = ["roads_local_buff","roads_state_buff","railroads_buff","osm_railroads_buff"]
+
+transport_poly_list = [osm_traffic,osm_transport]
+
+merge_list = []
+# loop through transportation lines, buffer by 6m and append output to merge list for future merge
+for transport, transport_buff in zip(transport_line_list,transport_buff_list):
+    print("- buffering the "+transport_buff+" layer")
+    buff = arcpy.Buffer_analysis(transport,os.path.join("memory",transport_buff),"6 Meters")
+    merge_list.append(buff)
+
+# append other traffic polygons to merge list for future merge
+for transport in transport_poly_list:
+    merge_list.append(transport)
+
+# select OSM roads that are not bridleways, footways, paths, steps, track grade 3, 4, 5 and add to merge list
+print("- copying selected OSM roads of interest")
+osm_roads_lyr = arcpy.MakeFeatureLayer_management(osm_roads,"osm_roads_lyr","fclass <> 'bridleway' And fclass <> 'footway' And fclass <> 'path' And fclass <> 'steps' And fclass <> 'track_grade3' And fclass <> 'track_grade4' And fclass <> 'track_grade5'")
+osm_roads_subset = arcpy.CopyFeatures_management(osm_roads_lyr,os.path.join("memory","osm_roads_subset"))
+osm_roads_buff = arcpy.Buffer_analysis(osm_roads_subset,os.path.join("memory","osm_roads_buff"),"6 Meters")
+merge_list.append(osm_roads_buff)
+
+# select points of interest that are not parks, battlefields, or universities and add to merge list
+print("- copying selected points of interest")
+osm_poi_lyr = arcpy.MakeFeatureLayer_management(osm_poi,"osm_poi_lyr","fclass <> 'battlefield' And fclass <> 'park' And fclass <> 'university'")
+osm_poi_subset = arcpy.CopyFeatures_management(osm_poi_lyr,os.path.join("memory","osm_poi_subset"))
+merge_list.append(osm_poi_subset)
+
+# merge and dissolve buffered roads, traffic polygons, and selected points of interest
+print("- merging buffered roads, traffic polygons, and selected points of interest")
+transportation = arcpy.Merge_management(merge_list,os.path.join("memory","transportation"),"","ADD_SOURCE_INFO")
+print("- repairing geometry")
+arcpy.RepairGeometry_management(transportation)
+print("- dissolving the merged transportation layer")
+trans_dissolve = arcpy.PairwiseDissolve_analysis(transportation,os.path.join("memory","trans_dissolve"))
+arcpy.management.CalculateField(trans_dissolve,"ClassVal","1","PYTHON3","","TEXT")
+print("- converting transportation polygon layer to raster")
+devtransportation = arcpy.conversion.PolygonToRaster(trans_dissolve,"ClassVal",os.path.join(gdb,"devtransportation"),"MAXIMUM_COMBINED_AREA","NONE","BUILD")
+
+# combine developed land from hi res developed land cover layer with transporation layer and developed open space layer
+print("Combining raster layers with mosaic to new raster")
+developed_merge = arcpy.management.MosaicToNewRaster("Extract_HiRes_Developed;devtransportation;devopenspace",gdb,"developed_merge",albers,"8_BIT_UNSIGNED",None,1,"MAXIMUM","FIRST")
+developed_merge = Reclassify(developed_merge,"Value",RemapRange([[1,100,1]]),"NODATA")
+
+print("Expanding and shrinking by 1m")
+expand_1 = Expand(developed_merge,1,1)
+shrink_1 = Shrink(expand_1,1,1)
+shrink_1.save(os.path.join(gdb,"developed_shrink_1m"))
+
+print("Expanding and shrinking by 2m")
+expand_2 = Expand(developed_merge,2,1)
+shrink_2 = Shrink(expand_2,2,1)
+shrink_2.save(os.path.join(gdb,"developed_shrink_2m"))
 
 ############################################################################################################################
 ### buildings

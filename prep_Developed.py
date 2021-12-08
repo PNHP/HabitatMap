@@ -22,7 +22,7 @@ arcpy.env.cellSize = refLayer
 arcpy.env.snapRaster = refLayer
 arcpy.env.mask = refLayer
 arcpy.env.outputCoordinateSystem = 'PROJCS["alber",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["central_meridian",-78.0],PARAMETER["Standard_Parallel_1",40.0],PARAMETER["Standard_Parallel_2",42.0],PARAMETER["latitude_of_origin",39.0],UNIT["Meter",1.0]]'
-arcpy.env.workspace = "memory"
+arcpy.env.workspace = r'E:\Projects\HabitatMap\DevelopedLand.gdb'
 albers = 'PROJCS["alber",GEOGCS["GCS_North_American_1983",DATUM["D_North_American_1983",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Albers"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["central_meridian",-78.0],PARAMETER["Standard_Parallel_1",40.0],PARAMETER["Standard_Parallel_2",42.0],PARAMETER["latitude_of_origin",39.0],UNIT["Meter",1.0]]'
 
 # set output gdb for non-temporary products
@@ -56,6 +56,7 @@ print("Beginning work on Developed Open Space")
 # extract developed land from hi-res dataset
 print("- extracting developed land from HiRes")
 Extract_HiRes_Developed = ExtractByAttributes(highreslc, "Value = 7 Or Value = 8 Or Value = 9 Or Value = 10 Or Value = 11 Or Value = 12") # 7 = structures; 8 = other impervious
+Extract_HiRes_Developed.save(os.path.join(gdb,"Extract_HiRes_Developed"))
 
 # extract developed land covers from NLCD
 print("- extracting developed land from NLCD")
@@ -95,7 +96,7 @@ merge_list = []
 # loop through transportation lines, buffer by 6m and append output to merge list for future merge
 for transport, transport_buff in zip(transport_line_list,transport_buff_list):
     print("- buffering the "+transport_buff+" layer")
-    buff = arcpy.Buffer_analysis(transport,os.path.join("memory",transport_buff),"6 Meters")
+    buff = arcpy.Buffer_analysis(transport,os.path.join(gdb,transport_buff),"6 Meters")
     merge_list.append(buff)
 
 # append other traffic polygons to merge list for future merge
@@ -105,26 +106,26 @@ for transport in transport_poly_list:
 # select OSM roads that are not bridleways, footways, paths, steps, track grade 3, 4, 5 and add to merge list
 print("- copying selected OSM roads of interest")
 osm_roads_lyr = arcpy.MakeFeatureLayer_management(osm_roads,"osm_roads_lyr","fclass <> 'bridleway' And fclass <> 'footway' And fclass <> 'path' And fclass <> 'steps' And fclass <> 'track_grade3' And fclass <> 'track_grade4' And fclass <> 'track_grade5'")
-osm_roads_subset = arcpy.CopyFeatures_management(osm_roads_lyr,os.path.join("memory","osm_roads_subset"))
-osm_roads_buff = arcpy.Buffer_analysis(osm_roads_subset,os.path.join("memory","osm_roads_buff"),"6 Meters")
+osm_roads_subset = arcpy.CopyFeatures_management(osm_roads_lyr,os.path.join(gdb,"osm_roads_subset"))
+osm_roads_buff = arcpy.Buffer_analysis(osm_roads_subset,os.path.join(gdb,"osm_roads_buff"),"6 Meters")
 merge_list.append(osm_roads_buff)
 
 # select points of interest that are not parks, battlefields, or universities and add to merge list
 print("- copying selected points of interest")
 osm_poi_lyr = arcpy.MakeFeatureLayer_management(osm_poi,"osm_poi_lyr","fclass <> 'battlefield' And fclass <> 'park' And fclass <> 'university'")
-osm_poi_subset = arcpy.CopyFeatures_management(osm_poi_lyr,os.path.join("memory","osm_poi_subset"))
+osm_poi_subset = arcpy.CopyFeatures_management(osm_poi_lyr,os.path.join(gdb,"osm_poi_subset"))
 merge_list.append(osm_poi_subset)
 
 # merge and dissolve buffered roads, traffic polygons, and selected points of interest
 print("- merging buffered roads, traffic polygons, and selected points of interest")
-transportation = arcpy.Merge_management(merge_list,os.path.join("memory","transportation"),"","ADD_SOURCE_INFO")
-print("- repairing geometry")
-arcpy.RepairGeometry_management(transportation)
+transportation = arcpy.Merge_management(merge_list,os.path.join(gdb,"transportation"),"","ADD_SOURCE_INFO")
+# print("- repairing geometry")
+# arcpy.RepairGeometry_management(transportation)
 print("- dissolving the merged transportation layer")
-trans_dissolve = arcpy.PairwiseDissolve_analysis(transportation,os.path.join("memory","trans_dissolve"))
+trans_dissolve = arcpy.PairwiseDissolve_analysis(transportation,os.path.join(gdb,"trans_dissolve"))
 arcpy.management.CalculateField(trans_dissolve,"ClassVal","1","PYTHON3","","TEXT")
 print("- converting transportation polygon layer to raster")
-devtransportation = arcpy.conversion.PolygonToRaster(trans_dissolve,"ClassVal",os.path.join(gdb,"devtransportation"),"MAXIMUM_COMBINED_AREA","NONE","BUILD")
+devtransportation = arcpy.conversion.PolygonToRaster(trans_dissolve,"ClassVal",os.path.join(gdb,"devtransportation"),"MAXIMUM_COMBINED_AREA","","","BUILD")
 
 # combine developed land from hi res developed land cover layer with transporation layer and developed open space layer
 print("Combining raster layers with mosaic to new raster")
